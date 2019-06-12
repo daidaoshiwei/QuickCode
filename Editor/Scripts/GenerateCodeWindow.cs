@@ -23,7 +23,8 @@ namespace Quick.Code
         public string namePrefix = "";
         public bool hasTypesuffix = false;
 
-
+        private const int configBtnMaxNum = 5;
+        private const int perRowConfigBtnNum = 5;
 
         [MenuItem("QuickTool/QuickGenCode")]
         public static void OpenWindow()
@@ -65,10 +66,10 @@ namespace Quick.Code
         private StringBuilder codeAssignText;
         private StringBuilder codeAllText;
 
-        public Dictionary<string,string> widgetNameMap = new Dictionary<string, string>{{"Toggle", "UITools.c_toggle" },
+        public Dictionary<string, string> widgetNameMap = new Dictionary<string, string>{{"Toggle", "UITools.c_toggle" },
         { "Image", "UITools.c_Image" }, { "TextMeshProUGUI", " UITools.c_TMP" }, { "Button", " UITools.c_Button" }, { "RectTransform", " UITools.c_RectTrans" }, { "InputField", " UITools.c_Input" }};
 
-        public List<string> allowableWidgets = new List<string> { "Toggle", "Image", "TextMeshProUGUI", "Button", "InputField"};
+        public List<string> allowableWidgets = new List<string> { "Toggle", "Image", "TextMeshProUGUI", "Button", "InputField" };
 
 
         //缓存所有变量名和对应控件对象，对重名作处理
@@ -85,8 +86,19 @@ namespace Quick.Code
 
         private GameObject SelectedObject = null;
 
-        private List<GameObject> tempDeletedGameobjectList = new List<GameObject>();
-        private List<GameObject> deletedGameobjectList = new List<GameObject>();
+        public List<GameObject> currentSelectedObjList = new List<GameObject>();
+
+        public bool bIncrementMode = false;
+
+        //控件配置
+        public Dictionary<GameObject, WidgetConfig> widgetConfigInfoDict = new Dictionary<GameObject, WidgetConfig>();
+
+        public enum UIObjectStatus
+        {
+            Usable,
+            ForbidCallBack,
+            Unusable,
+        }
 
         #region 代码格式分类
         private string regionStartFmt { get { return selectedBar == 0 ? CodeConfig.regionStartFmt : CodeConfig.regionStartFmtLua; } }
@@ -115,12 +127,12 @@ namespace Quick.Code
             Selection.selectionChanged = delegate
             {
                 //SelectedObject = (GameObject)Selection.activeObject;
-
-                tempDeletedGameobjectList.Clear();
+                currentSelectedObjList.Clear();
                 foreach (var item in Selection.gameObjects)
                 {
-                    tempDeletedGameobjectList.Add(item);
-                    //Debug.Log("选择数组:" + item.name);
+                    currentSelectedObjList.Add(item);
+                    Debug.Log("选择:" + currentSelectedObjList[0].name);
+
                 }
             };
         }
@@ -176,7 +188,7 @@ namespace Quick.Code
                 rect.height = EditorGUIUtility.singleLineHeight;
                 GUI.Box(rect, "");
 
-                EditorGUILayout.LabelField("选择待处理UI:", GUILayout.Width(halfViewWidth / 4f));
+                EditorGUILayout.LabelField("选择待处理UI:", GUILayout.Width(halfViewWidth / 6f));
                 GameObject lastRoot = root;
                 root = EditorGUILayout.ObjectField(root, typeof(GameObject), true) as GameObject;
 
@@ -184,6 +196,28 @@ namespace Quick.Code
                 {
                     uiWidgets.Clear();
                     uiObjects.Clear();
+                }
+
+                if (currentSelectedObjList.Count > 0)
+                {
+                    EditorGUILayout.LabelField("当前选择控件:", GUILayout.Width(halfViewWidth / 8f));
+                    EditorGUILayout.LabelField(currentSelectedObjList[0].name, GUILayout.Width(halfViewWidth / 6f));
+                }
+                else
+                {
+                    EditorGUILayout.LabelField("当前选择控件:", GUILayout.Width(halfViewWidth / 8f));
+                    EditorGUILayout.LabelField("   空   ", GUILayout.Width(halfViewWidth / 6f));
+                }
+
+                bool tmp = GUILayout.Toggle(bIncrementMode, new GUIContent("增量模式"), GUILayout.Width(halfViewWidth / 8f));
+                if (bIncrementMode != tmp)
+                {
+                    bIncrementMode = tmp;
+                    uiWidgets.Clear();
+                    uiObjects.Clear();
+                    currentSelectedObjList.Clear();
+                    widgetConfigInfoDict.Clear();
+                    RefreshUIList();
                 }
             }
         }
@@ -198,22 +232,26 @@ namespace Quick.Code
             {
                 GUI.backgroundColor = Color.white;
                 Rect rect = hScope.rect;
-                rect.height = EditorGUIUtility.singleLineHeight;
+                rect.height = (float)(EditorGUIUtility.singleLineHeight*1.5);
                 GUI.Box(rect, "");
 
-                if (GUILayout.Button("查找UI控件", GUILayout.Width(halfViewWidth / 2f)))
+                if (GUILayout.Button("查找UI控件", GUILayout.Width(halfViewWidth / 3f), GUILayout.Height(rect.height)))
                 {
                     RefreshUIList();
                 }
 
-                if (GUILayout.Button("清除控件"))
+                if (GUILayout.Button("清除控件", GUILayout.Height(rect.height)))
                 {
-                    deletedGameobjectList.Clear();
                     uiWidgets.Clear();
                 }
-                if (GUILayout.Button("清除其他"))
+                if (GUILayout.Button("清除其他", GUILayout.Height(rect.height)))
                 {
                     uiObjects.Clear();
+                }
+
+                if (GUILayout.Button("还原控件设置", GUILayout.Height(rect.height)))
+                {
+                    widgetConfigInfoDict.Clear();
                 }
             }
         }
@@ -266,62 +304,132 @@ namespace Quick.Code
         private bool toggle2;
         private void DrawWidgetDetail()
         {
-            using (EditorGUILayout.HorizontalScope hScope = new EditorGUILayout.HorizontalScope(GUILayout.Height(EditorGUIUtility.singleLineHeight)))
-            //using (EditorGUILayout.HorizontalScope hScope = new EditorGUILayout.HorizontalScope())
+            float ButtonWidth = halfViewWidth / perRowConfigBtnNum;
+            float ButtonHeight = (float)(EditorGUIUtility.singleLineHeight * 1.5);
+            using (EditorGUILayout.VerticalScope vScope =
+                        new EditorGUILayout.VerticalScope(GUILayout.Height((float)(EditorGUIUtility.singleLineHeight *1.5))))
             {
-                EditorGUILayout.Space();
-                //GUI.backgroundColor = Color.gray;
-                if (GUILayout.Button("删除自己及子控件", GUILayout.Width(halfViewWidth / 4f)))
+                using (EditorGUILayout.HorizontalScope hScope = new EditorGUILayout.HorizontalScope(GUILayout.Height(EditorGUIUtility.singleLineHeight)))
+                //using (EditorGUILayout.HorizontalScope hScope = new EditorGUILayout.HorizontalScope())
                 {
-                    if (tempDeletedGameobjectList.Count > 0)
+                    //GUI.backgroundColor = Color.gray;
+                    if (GUILayout.Button("删除自己及子控件", GUILayout.Width(ButtonWidth), GUILayout.Height(ButtonHeight)))
                     {
-                        foreach(var item in tempDeletedGameobjectList)
+                        if (currentSelectedObjList.Count > 0)
                         {
-                            if(!deletedGameobjectList.Contains(item))
+                            foreach (var item in currentSelectedObjList)
                             {
-                                deletedGameobjectList.Add(item);
-                            }
-                        }
-                        tempDeletedGameobjectList.Clear();
-                        uiWidgets.Clear();
-                        RefreshUIList();
-                        //Debug.Log("选择了控件" + SelectedObject.name);
-                        //SelectedObject = null;
-                    }
-                    else
-                    {
-                        Debug.Log("请选择一个控件！");
-                    }
-                }
+                                if (!widgetConfigInfoDict.ContainsKey(item))
+                                {
+                                    WidgetConfig config = new WidgetConfig();
+                                    widgetConfigInfoDict[item] = config;
+                                }
 
-                if (GUILayout.Button("生成Transform组件", GUILayout.Width(halfViewWidth / 4f)))
-                {
-                    if (tempDeletedGameobjectList.Count > 0)
-                    {
-                        foreach (var item in tempDeletedGameobjectList)
+                                widgetConfigInfoDict[item].bDeleted = true;
+                            }
+                            currentSelectedObjList.Clear();
+                            uiWidgets.Clear();
+                            RefreshUIList();
+                            //Debug.Log("选择了控件" + SelectedObject.name);
+                            //SelectedObject = null;
+                        }
+                        else
                         {
-                            if (!uiObjects.Contains(item))
+                            Debug.Log("请选择一个控件！");
+                        }
+                    }
+
+                    if (GUILayout.Button("禁止生成Event", GUILayout.Width(ButtonWidth), GUILayout.Height(ButtonHeight)))
+                    {
+                        if (currentSelectedObjList.Count > 0)
+                        {
+                            foreach (var item in currentSelectedObjList)
                             {
-                                uiObjects.Add(item);
+                                if (!widgetConfigInfoDict.ContainsKey(item))
+                                {
+                                    WidgetConfig config = new WidgetConfig();
+                                    widgetConfigInfoDict[item] = config;
+                                }
+
+                                widgetConfigInfoDict[item].bForbidEvent = true;
                             }
                         }
-                        tempDeletedGameobjectList.Clear();
-                        //Debug.Log("选择了控件" + SelectedObject.name);
-                        //SelectedObject = null;
+                        else
+                        {
+                            Debug.Log("请选择一个控件！");
+                        }
                     }
-                    else
+
+                    if (GUILayout.Button("加入子命名前缀", GUILayout.Width(ButtonWidth), GUILayout.Height(ButtonHeight)))
                     {
-                        Debug.Log("请选择一个控件！");
+                        if (currentSelectedObjList.Count > 0)
+                        {
+                            foreach (var item in currentSelectedObjList)
+                            {
+                                if (!widgetConfigInfoDict.ContainsKey(item))
+                                {
+                                    WidgetConfig config = new WidgetConfig();
+                                    widgetConfigInfoDict[item] = config;
+                                }
+
+                                widgetConfigInfoDict[item].bNameUseParentPrefix = true;
+                            }
+                        }
+                        else
+                        {
+                            Debug.Log("请选择一个控件！");
+                        }
                     }
-                }
-                    //    Rect rect = hScope.rect;
-                    //    rect.height = EditorGUIUtility.singleLineHeight;
-                    //    GUI.Box(rect, "xxxxxx");
+
+                    if (GUILayout.Button("不加Component", GUILayout.Width(ButtonWidth), GUILayout.Height(ButtonHeight)))
+                    {
+                        if (currentSelectedObjList.Count > 0)
+                        {
+                            foreach (var item in currentSelectedObjList)
+                            {
+                                if (!widgetConfigInfoDict.ContainsKey(item))
+                                {
+                                    WidgetConfig config = new WidgetConfig();
+                                    widgetConfigInfoDict[item] = config;
+                                }
+
+                                widgetConfigInfoDict[item].bNotComponentCode = true;
+                            }
+                        }
+                        else
+                        {
+                            Debug.Log("请选择一个控件！");
+                        }
+                    }
+
+                    if (GUILayout.Button("生成Transform组件", GUILayout.Width(ButtonWidth), GUILayout.Height(ButtonHeight)))
+                    {
+                        if (currentSelectedObjList.Count > 0)
+                        {
+                            foreach (var item in currentSelectedObjList)
+                            {
+                                if (!uiObjects.Contains(item))
+                                {
+                                    uiObjects.Add(item);
+                                }
+                            }
+                            currentSelectedObjList.Clear();
+                        }
+                        else
+                        {
+                            Debug.Log("请选择一个控件！");
+                        }
+                    }
+                    //EditorGUILayout.Space();
+                    //Rect rect = hScope.rect;
+                    //rect.height = EditorGUIUtility.singleLineHeight;
+                    //GUI.Box(rect, "xxxxxx");
 
                     //    GUILayout.Toggle(false, new GUIContent("生成点击事件"));
                     //    GUILayout.SelectionGrid(4, new[] { "1", "11", "111", "1111" }, 4);
-                    //    EditorGUILayout.LayerField("LayerField", 1);
-                    //    EditorGUILayout.TagField("TagField", "一个tag");
+                    //EditorGUILayout.Space();
+                    //EditorGUILayout.LayerField("LayerField", 1);
+                    //EditorGUILayout.TagField("TagField", "一个tag");
 
 
                     //    flagtype = (WidgetEventType)EditorGUILayout.EnumPopup(flagtype, GUILayout.Width(halfViewWidth / 8f));
@@ -348,6 +456,36 @@ namespace Quick.Code
                     //    GUILayout.Width(halfViewWidth / 8f));
 
                 }
+
+                if(bIncrementMode)
+                {
+                    using (EditorGUILayout.HorizontalScope hScope = new EditorGUILayout.HorizontalScope())
+                    {
+                        if (GUILayout.Button("添加控件", GUILayout.Width(ButtonWidth), GUILayout.Height(ButtonHeight)))
+                        {
+                            if (currentSelectedObjList.Count > 0)
+                            {
+                                foreach (var item in currentSelectedObjList)
+                                {
+                                    if (!widgetConfigInfoDict.ContainsKey(item))
+                                    {
+                                        WidgetConfig config = new WidgetConfig();
+                                        widgetConfigInfoDict[item] = config;
+                                    }
+                                }
+
+                                uiWidgets.Clear();
+                                RefreshUIList();
+                            }
+                            else
+                            {
+                                Debug.Log("请选择一个控件！");
+                            }
+                        }
+
+                    }
+                }
+            }
         }
 
         /// <summary>
@@ -547,19 +685,17 @@ namespace Quick.Code
         /// <param name="callback">回调</param>
         public void RecursiveUI(Transform parent, UnityAction<Transform> callback)
         {
-            if (deletedGameobjectList.Count > 0)
+            UIObjectStatus status = GetUiObjectStatus(parent);
+            if(status == UIObjectStatus.Unusable)
             {
-                foreach(var item in deletedGameobjectList)
-                {
-                    if(item == parent.gameObject)
-                    {
-                        return;
-                    }
-                }
+                return;
             }
 
-            if (callback != null)
-                callback(parent);
+            if (status != UIObjectStatus.ForbidCallBack)
+            {
+                if (callback != null)
+                    callback(parent);
+            }
 
             if (parent.childCount >= 0)
             {
@@ -572,6 +708,54 @@ namespace Quick.Code
             }
         }
 
+        private UIObjectStatus GetUiObjectStatus(Transform parent)
+        {
+            UIObjectStatus status = UIObjectStatus.Usable;
+            if (!bIncrementMode)
+            {
+                if (widgetConfigInfoDict.Count > 0)
+                {
+                    foreach (var item in widgetConfigInfoDict)
+                    {
+                        if (item.Key == parent.gameObject && item.Value.bDeleted)
+                        {
+                            status = UIObjectStatus.Unusable;
+                            break;
+                        }
+                    }
+                }
+            }
+            else
+            {
+                if (widgetConfigInfoDict.Count <= 0)
+                {
+                    status = UIObjectStatus.Unusable;
+                }
+                bool usable = false;
+                foreach (var item in widgetConfigInfoDict)
+                {
+                    if (item.Key == parent.gameObject || IsChild(item.Key, parent.gameObject))
+                    {
+                        status = UIObjectStatus.Usable;
+                        usable = true;
+                        break;
+                    }
+                }
+
+                if(!usable)
+                {
+                    status = UIObjectStatus.ForbidCallBack;
+                }
+            }
+
+            return status;
+        }
+
+
+        /// <summary>
+        /// 生产变量名zjf
+        /// </summary>
+        /// <returns></returns>
         private string BuildStatementCode()
         {
             variableNum = 0;
@@ -627,7 +811,7 @@ namespace Quick.Code
             }
 
             string typeName = type.Name;
-            string variableName = string.Format("{0}Panel", go.name.Substring(0, 1).ToLower());
+            string variableName = string.Format("{0}Panel", go.name.Substring(0, 1).ToLower() + go.name.Substring(1));
             variableName = variableName.Replace(' ', '_');   //命名有空格的情况
                                                              //重名处理
             if (variableNameDic.ContainsKey(variableName))
@@ -676,8 +860,28 @@ namespace Quick.Code
                 typeName = "Text";
             }
 
+            string parentPrefix = "";
+            foreach(var item in widgetConfigInfoDict)
+            {
+                if(item.Value.bNameUseParentPrefix)
+                {
+                    foreach (Transform child in item.Key.transform)
+                    {
+                        if(child.gameObject == uiWidgets.gameObject)
+                        {
+                            parentPrefix = item.Key.name;
+                            parentPrefix = parentPrefix.Substring(0, 1).ToLower() + parentPrefix.Substring(1);
+                            break;
+                        }
+                     }
+                }
+            }
+
+
+            string widgetName = parentPrefix.Length > 0 ? uiWidgets.name : uiWidgets.name.Substring(0, 1).ToLower() + uiWidgets.name.Substring(1);
+            widgetName = parentPrefix + widgetName;
             string suffix = hasTypesuffix ? typeName : "";
-            string variableName = string.Format("{2}{1}{0}", suffix, uiWidgets.name.Substring(0, 1).ToLower() + uiWidgets.name.Substring(1), namePrefix);
+            string variableName = string.Format("{2}{1}{0}", suffix, widgetName, namePrefix);
             variableName = variableName.Replace(' ', '_');   //命名有空格的情况
 
             if (variableNameDic.ContainsKey(variableName))
@@ -723,7 +927,15 @@ namespace Quick.Code
 
                         if (type.Name == elem.ToString() && !selectedEventWidgets.ContainsKey(type.Name))
                         {
-                            selectedEventWidgets.Add(type.Name, true);
+                            if(type.Name == "Button")
+                            {
+                                selectedEventWidgets.Add(type.Name, false);
+                            }
+                            else
+                            {
+                                selectedEventWidgets.Add(type.Name, true);
+
+                            }
                         }
                     }                   
                 }                
@@ -739,7 +951,7 @@ namespace Quick.Code
         }
 
         /// <summary>
-        /// 构建注册控件事件的代码
+        /// 构建注册控件事件的代码zjf
         /// </summary>
         /// <returns></returns>
         private string BuildEventCode()
@@ -748,12 +960,17 @@ namespace Quick.Code
             codeEventText = new StringBuilder();
 
             codeEventText.Append(eventRegion);
-            //codeEventText.AppendFormat(methodStartFmt, "_BindingEvents");
+            codeEventText.AppendFormat(methodStartFmt, "_BindingEvents");
 
             bool hasEventWidget = false;    //标识是否有控件注册了事件
             for (int i = 0; i < uiWidgets.Count; i++)
             {
                 if (uiWidgets[i] == null) continue;
+
+                if(widgetConfigInfoDict.ContainsKey(uiWidgets[i].gameObject) && widgetConfigInfoDict[uiWidgets[i].gameObject].bForbidEvent)
+                {
+                    continue;
+                }
 
                 //剔除不是事件或者是事件但未勾选toggle的控件
                 string typeName = uiWidgets[i].GetType().Name;
@@ -770,6 +987,7 @@ namespace Quick.Code
                         if (!string.IsNullOrEmpty(variableName))
                         {
                             string methodName = variableName.Substring(variableName.IndexOf('_') + 1);
+                            methodName = methodName.Substring(0, 1).ToUpper() + methodName.Substring(1);
                             if (uiWidgets[i] is Button)
                             {
                                 string onClickStr = string.Format(onClickSerilCode, variableName, methodName);
@@ -845,7 +1063,7 @@ namespace Quick.Code
             string codeStr = codeEventText.ToString();
             if (hasEventWidget)
             {
-                codeEventText.Insert(codeStr.LastIndexOf(';') + 1, methodEnd);
+                codeEventText.Insert(codeStr.LastIndexOf("})") + 2, methodEnd);
             }
             else
             {
@@ -1043,6 +1261,9 @@ namespace Quick.Code
         }
         
 
+        /// <summary>
+        /// 生产lua控件代码 zjf
+        /// </summary>
         private void BuildAssignmentCode()
         {
             codeAssignText = new StringBuilder();
@@ -1068,6 +1289,7 @@ namespace Quick.Code
 
                 string path = "";
                 bool isRootComponent = false;
+                GameObject widgetObj = null;
                 foreach (var tran in allPath.Keys)
                 {
                     if (tran == null) continue;
@@ -1084,6 +1306,8 @@ namespace Quick.Code
                             path = allPath[tran];
                             break;
                         }
+
+                        widgetObj = behav.gameObject;
                     }
                     else
                     {
@@ -1110,6 +1334,10 @@ namespace Quick.Code
                     if (isRootComponent)
                     {
                         codeAssignText.AppendFormat(assignRootCodeFmt, name, luaName);
+                    }
+                    else if(widgetObj && widgetConfigInfoDict.Count > 0  && widgetConfigInfoDict.ContainsKey(widgetObj)  && widgetConfigInfoDict[widgetObj].bNotComponentCode)
+                    {
+                        codeAssignText.AppendFormat(CodeConfig.assignCodeFmtLua1, name, path);
                     }
                     else
                     {            

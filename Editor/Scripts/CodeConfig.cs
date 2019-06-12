@@ -12,7 +12,7 @@ namespace Quick.Code
         public enum EventWidgetType
         {
             Image,
-            //Button,
+            Button,
             //Toggle,
             //Slider,
             //InputField,
@@ -98,14 +98,15 @@ namespace Quick.Code
 --*/
 --------------------------------------------------------------------------------";
 
-        public const string assignCodeFmtLua = "\tself.{0} = widgetsRoot:Find(\"{1}\"):GetComponent({2}); \n";
-        public const string assignGameObjectCodeFmtLua = "\tself.{0} = widgetsRoot:Find(\"{1}\").gameObject; \n";
+        public const string assignCodeFmtLua = "\tself.{0} = widgetsRoot:Find(\"{1}\"):GetComponent({2}) \n";
+        public const string assignCodeFmtLua1 = "\tself.{0} = widgetsRoot:Find(\"{1}\") \n";
+        public const string assignGameObjectCodeFmtLua = "\tself.{0} = widgetsRoot:Find(\"{1}\") \n";
         //根物体上挂载的控件
         public const string assignRootCodeFmtLua = "\tself.{0} = widgetsRoot:GetComponent({1}); \n";
 
         //public const string onClickSerilCodeLua = "\tself.{0}.onClick:AddListener(function () self:On{1}Clicked(); end); \n";
         public const string onClickSerilCodeLua = "\tself.{0}.onClick:AddListener(function () self:On{1}Clicked(); end); \n";
-        public const string onImageClickSerilCodeLua = "\tUITools.PointerClick(self.{0}.gameObject, self:On{1}Clicked, self, {2}{3}) \n";
+        public const string onImageClickSerilCodeLua = "\tUITools.PointerClick(self.{0}.gameObject, self:On{1}Clicked, self, {2}{3})";
         
         public const string onValueChangeSerilCodeLua = "\n\tself.{0}.onValueChanged:AddListener(function (args) self:On{1}ValueChanged(args); end);";
         public const string btnCallbackSerilCodeLua = "\nfunction xxxClass:On{0}Clicked()\n\nend\n";
