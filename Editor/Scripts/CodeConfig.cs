@@ -100,6 +100,7 @@ namespace Quick.Code
 
         public const string assignCodeFmtLua = "\tself.{0} = widgetsRoot:Find(\"{1}\"):GetComponent({2}) \n";
         public const string assignCodeFmtLua1 = "\tself.{0} = widgetsRoot:Find(\"{1}\") \n";
+        public const string assignCodeFmtLua2 = "\ttrans:Find(\"{0}\"):GetComponent({1}) = nil \n";
         public const string assignGameObjectCodeFmtLua = "\tself.{0} = widgetsRoot:Find(\"{1}\") \n";
         //根物体上挂载的控件
         public const string assignRootCodeFmtLua = "\tself.{0} = widgetsRoot:GetComponent({1}); \n";

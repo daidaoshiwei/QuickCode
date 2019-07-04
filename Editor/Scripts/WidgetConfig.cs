@@ -10,5 +10,6 @@ namespace Quick.Code
        public bool bForbidEvent = false;
        public bool bNameUseParentPrefix = false;
        public bool bNotComponentCode = false;
+       public bool bScrollItem = false;
     }
 }

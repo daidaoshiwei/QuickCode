@@ -67,7 +67,7 @@ namespace Quick.Code
         private StringBuilder codeAllText;
 
         public Dictionary<string, string> widgetNameMap = new Dictionary<string, string>{{"Toggle", "UITools.c_toggle" },
-        { "Image", "UITools.c_Image" }, { "TextMeshProUGUI", " UITools.c_TMP" }, { "Button", " UITools.c_Button" }, { "RectTransform", " UITools.c_RectTrans" }, { "InputField", " UITools.c_Input" }};
+        { "Image", "UITools.c_Image" }, { "TextMeshProUGUI", "UITools.c_TMP" }, { "Button", "UITools.c_Button" }, { "RectTransform", " UITools.c_RectTrans" }, { "InputField", " UITools.c_Input" }};
 
         public List<string> allowableWidgets = new List<string> { "Toggle", "Image", "TextMeshProUGUI", "Button", "InputField" };
 
@@ -483,6 +483,31 @@ namespace Quick.Code
                             }
                         }
 
+                    }
+                }
+
+                using (EditorGUILayout.HorizontalScope hScope = new EditorGUILayout.HorizontalScope(GUILayout.Height(EditorGUIUtility.singleLineHeight)))
+                //using (EditorGUILayout.HorizontalScope hScope = new EditorGUILayout.HorizontalScope())
+                {
+                    if (GUILayout.Button("ScrollItem", GUILayout.Width(ButtonWidth), GUILayout.Height(ButtonHeight)))
+                    {
+                        if (currentSelectedObjList.Count > 0)
+                        {
+                            foreach (var item in currentSelectedObjList)
+                            {
+                                if (!widgetConfigInfoDict.ContainsKey(item))
+                                {
+                                    WidgetConfig config = new WidgetConfig();
+                                    widgetConfigInfoDict[item] = config;
+                                }
+
+                                widgetConfigInfoDict[item].bScrollItem = true;
+                            }
+                        }
+                        else
+                        {
+                            Debug.Log("请选择一个控件！");
+                        }
                     }
                 }
             }
@@ -1014,6 +1039,7 @@ namespace Quick.Code
                                 string onClickStr = string.Format(onImageClickSerilCode, variableName, methodName,"{","}");
                                 if (hasEventWidget)
                                 {
+                                    //插入GetClick 的注册语句
                                     string str = codeEventText.ToString();
                                     codeEventText.Insert(str.LastIndexOf("})") + 2, "\n" +  onClickStr);
                                 }
@@ -1021,6 +1047,7 @@ namespace Quick.Code
                                 {
                                     codeEventText.Append(onClickStr);
                                 }
+                                //结尾加入OnClick 的响应函数
                                 codeEventText.AppendFormat(btnCallbackSerilCode, methodName);
 
                                 hasEventWidget = true;
@@ -1063,6 +1090,7 @@ namespace Quick.Code
             string codeStr = codeEventText.ToString();
             if (hasEventWidget)
             {
+                //插入GetClick 的注册语句 函数的结尾end 
                 codeEventText.Insert(codeStr.LastIndexOf("})") + 2, methodEnd);
             }
             else
@@ -1281,6 +1309,8 @@ namespace Quick.Code
                 return;
             }
 
+            StringBuilder scrollItemcodeAssignText = new StringBuilder();
+
             //格式：变量名 = transform.Find("").Getcomponent<>();
             foreach (var name in variableNameDic.Keys)
             {
@@ -1321,7 +1351,14 @@ namespace Quick.Code
 
                 if (obj is GameObject)
                 {
-                    codeAssignText.AppendFormat(assignGameObjectCodeFmt, name, path);
+                    if((AppendScrollItemText(widgetObj, scrollItemcodeAssignText, path, "") != 0))
+                    {
+
+                    }
+                    else
+                    {
+                        codeAssignText.AppendFormat(assignGameObjectCodeFmt, name, path);
+                    }
                 }
                 else
                 {
@@ -1331,14 +1368,20 @@ namespace Quick.Code
                         luaName = obj.GetType().Name;
 
                     }
+
+
                     if (isRootComponent)
                     {
                         codeAssignText.AppendFormat(assignRootCodeFmt, name, luaName);
                     }
+                    else if (AppendScrollItemText(widgetObj, scrollItemcodeAssignText, path, luaName) != 0)
+                    {
+                        
+                    }
                     else if(widgetObj && widgetConfigInfoDict.Count > 0  && widgetConfigInfoDict.ContainsKey(widgetObj)  && widgetConfigInfoDict[widgetObj].bNotComponentCode)
                     {
                         codeAssignText.AppendFormat(CodeConfig.assignCodeFmtLua1, name, path);
-                    }
+                    }          
                     else
                     {            
                         codeAssignText.AppendFormat(assignCodeFmt, name, path, luaName);
@@ -1348,7 +1391,50 @@ namespace Quick.Code
 
             codeAssignText.Append(methodEnd);
             codeAssignText.Append(regionEnd);
+
+            if (scrollItemcodeAssignText.Length > 0)
+            {
+                codeAssignText.Append("function xxxClass:ItemShowFunc(trans, data, index)\n");
+                codeAssignText.Append(scrollItemcodeAssignText);
+                codeAssignText.Append("end\n");
+            }
+
             //Debug.Log(codeAssignText.ToString());
+        }
+
+        private int AppendScrollItemText(GameObject obj, StringBuilder text, string path,string componentName)
+        {
+            foreach (var item in widgetConfigInfoDict)
+            {
+                if (item.Value.bScrollItem)
+                {
+                    if(obj == item.Key)
+                    {
+                        text.AppendFormat(CodeConfig.assignCodeFmtLua1, name + "Item", path);
+                        return 1;
+                    }
+                    else if (IsChild(item.Key, obj))
+                    {
+                        var allPath = GetChildrenPaths(item.Key);
+                        if(allPath.ContainsKey(obj.transform))
+                        {
+                            string subPath = allPath[obj.transform];
+
+                            if(componentName == "UITools.c_Button")
+                            {
+                                text.AppendFormat("\tself.scrollTool:OnClickEvent(trans: Find(\"{0}\"):GetComponent(\"{1}\"), self.On{0}Clicked, self) \n", subPath, componentName);
+                            }
+                            else
+                            {
+                                text.AppendFormat(CodeConfig.assignCodeFmtLua2, subPath, componentName);
+                            }
+                        }
+                        return 2;
+                    }
+                }
+            }
+
+            return 0;
         }
 
 
